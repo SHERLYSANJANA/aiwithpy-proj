@@ -10,7 +10,8 @@ CELL = mapload.CELL
 # the grid is now built from IIITDM.png instead of by hand (rows/cols come from the image size)
 map, rows, cols = mapload.loadMap("IIITDM.png")
 
-mapDict = {'path' : [' ',1], 'wall' : ['■',float('inf')], 'trace':['□',1]}
+# cost to walk onto a tile: road 1, dirt trail 2, grass 3, everything else is blocked
+mapDict = {'path' : [' ',1], 'trail' : ['.',2], 'grass' : ['"',3], 'wall' : ['■',float('inf')], 'trace':['□',1]}
 
 # in the format (y,x) = (row, col), already snapped onto a road cell
 entries, moved = mapload.buildEntries(map, rows, cols)
