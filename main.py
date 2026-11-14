@@ -9,8 +9,7 @@ map = [['path' for _ in range(cols)] for _ in range(rows)]
 
 
 #■
-mapDict = {'path' : [' ',1], 'ground':['_',1], 'ins':['=',float('inf')], 'wall' : ['■',float('inf')], 'plant':['|',float('inf')],'trace':'□'}
-
+mapDict = {'path' : [' ',1], 'ground':['_',1], 'ins':['=',float('inf')], 'wall' : ['■',float('inf')], 'plant':['|',float('inf')],'trace':['□',1]}
 for i in range(rows):
     if(i > 0 and i < rows-1):
         map[i][0] = 'wall'
@@ -20,35 +19,35 @@ for i in range(rows):
             map[i][j] = 'wall'
 
 
-def blockCreate(x1,y1,x2,y2,t='wall',b='0'):
-    for i in range(rows):
-        for j in range(cols):
+def blockCreate(x1,y1,x2,y2,t='wall',b='='):
+    for i in range(y1, y2+1):             
+        for j in range(x1, x2+1):
             if(t == 'wall'):
-                if( (i == y1 and j>=x1 and j <= x2) or (i == y2 and j>=x1 and j <= x2) or (j == x1 and i>=y1 and i <= y2) or (j == x2 and i>=y1 and i <= y2)):
+                if(i == y1 or i == y2 or j == x1 or j == x2):
                     map[i][j] = 'wall'
-                elif(i > y1 and i<y2 and j>x1 and j<x2):
-                    map[i][j] = 'ins_'+b
+                else:
+                    map[i][j] = 'ins'     
+                    insLabel[(i,j)] = b
             else:
-                if(i >= y1 and i<=y2 and j>=x1 and j<=x2):
-                    map[i][j] = t
+                map[i][j] = t
+
 
 
 def displayMap(path,s,g):
+    pathSet = set(path)                    # FIX: set lookup instead of scanning a list per cell
     for i in range(rows):
         for j in range(cols):
-            if(i ,j) == s or (i,j) == g:
+            if (i,j) == s or (i,j) == g:   # FIX: was "(i ,j) == s"
                 print('×',end='')
                 continue
-            elif (i, j) in path:
-                print(mapDict['trace'],end='')
+            elif (i, j) in pathSet:
+                print(mapDict['trace'][0],end='')
                 continue
 
-            elif map[i][j].split('_')[0] == 'ins':
-                print(map[i][j].split('_')[1],end='')
-                #print(mapDict['ins'][0],end='')
+            elif (i, j) in insLabel:
+                print(insLabel[(i, j)],end='')
             else:
-                print(mapDict[map[i][j]][0],end='')
-        print()
+                print(mapD
 
 
 
@@ -90,52 +89,50 @@ entries = {'lab':[(10,31),(21,15)], 'acad':[(24,15),(41,15)], 'test':[(58,158)],
 }
 inpKey = {'A':'acad','L':'lab','N':'admin','P1':'pems1','P2':'pems2','P3':'pems3','J':'jhost','S':'bhost','+':'med','C':'cafe','R':'arj','U':'ulti','M':'mess','JA':'anhost'}
 
-print("Key :\nA - Academics\tL - Laboratory\tN - Admin\nP1, P2, P3 - Pems Blocks\nJ - Jasmine Hostel\tJA - Jasmine Annex\tS - Ashwatha/Ashoka\nM - Mess\n+ - Medical Center\nR - Sports Complex\nU - Ultimate Store\tC - Cafeteria\n")
 
-while(True):
-    a = input("Enter starting place : ").upper()
-    if a not in inpKey.keys():
-        print("Not valid, enter from key\n")
-        continue
-    break
-
-while(True):
-    b = input("Enter destination place : ").upper()
-    if b not in inpKey.keys():
-        print("Not valid, enter from key\n")
-        continue
-    break
-
-print("\n\n\nA* Star Search")
-start_time = time.perf_counter()
-path, c, st, goal, exp = astar.search(entries[inpKey[a]],entries[inpKey[b]],map,mapDict,rows,cols)
-end_time = time.perf_counter()
-displayMap(path,st,goal)
-print("\nTotal Cost : ",c)
-print(f"Explored States : {exp}")
-print(f"Elapsed Time : {end_time - start_time : .6f}")
-print("="*cols)
+def checkEntries():
+    # NEW: an entry sitting on a wall/building would silently break every search
+    for name in entries:
+        for (y, x) in entries[name]:
+            if mapDict[map[y][x]][1] == float('inf'):
+                print("Entry", name, (y, x), "is not on a walkable tile")
+                return False
+    return True
 
 
-print("\n\n\nGreedy Best First Search")
-start_time = time.perf_counter()
-path, c, st, goal, exp = gbfs.search(entries[inpKey[a]],entries[inpKey[b]],map,mapDict,rows,cols)
-end_time = time.perf_counter()
-displayMap(path,st,goal)
-print("\nTotal Cost : ",c)
-print(f"Explored States : {exp}")
-print(f"Elapsed Time : {end_time - start_time : .6f}")
-print("="*cols)
+def ask(prompt, other=None):
+    # FIX: one helper instead of two copy-pasted loops; also rejects start == destination
+    while(True):
+        v = input(prompt).upper()
+        if v not in inpKey.keys():
+            print("Not valid, enter from key\n")
+            continue
+        if v == other:
+            print("Destination must be different from the start\n")
+            continue
+        return v
 
 
-print("\n\n\nSimulated Annealing")
-start_time = time.perf_counter()
-path, c, st, goal, exp = simanneal.search(entries[inpKey[a]],entries[inpKey[b]],map,mapDict,rows,cols)
-end_time = time.perf_counter()
-displayMap(path,st,goal)
-print("\nTotal Cost : ",c)
-print(f"Explored States : {exp}")
-if(goal not in path):
-    print("Didn't find goal in time")
-print(f"Elapsed Time : {end_time - start_time : .6f}")
-print("="*cols)
+# FIX: nothing below runs on import any more
+if __name__ == "__main__":
+    if not checkEntries():
+        raise SystemExit
+
+    print("Key :\nA - Academics\tL - Laboratory\tN - Admin\nP1, P2, P3 - Pems Blocks\nJ - Jasmine Hostel\tJA - Jasmine Annex\tS - Ashwatha/Ashoka\nM - Mess\n+ - Medical Center\nR - Sports Complex\nU - Ultimate Store\tC - Cafeteria\tT - Test entry\n")
+
+    a = ask("Enter starting place : ")
+    b = ask("Enter destination place : ", a)
+
+    # FIX: one loop instead of three copy-pasted blocks
+    for title, algoModule in [("A* Star Search", astar), ("Greedy Best First Search", gbfs), ("Simulated Annealing", simanneal)]:
+        print("\n\n\n" + title)
+        start_time = time.perf_counter()
+        path, c, st, goal, exp = algoModule.search(entries[inpKey[a]],entries[inpKey[b]],map,mapDict,rows,cols)
+        end_time = time.perf_counter()
+        displayMap(path,st,goal)
+        print("\nTotal Cost : ",c)
+        print(f"Explored States : {exp}")
+        if(c == float('inf')):                 # FIX: failure is reported for all three, not only SA
+            print("Didn't find goal")
+        print(f"Elapsed Time : {end_time - start_time : .6f}")
+        print("="*cols)
