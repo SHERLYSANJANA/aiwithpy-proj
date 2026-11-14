@@ -3,6 +3,7 @@ import simanneal
 import gbfs
 import mapload
 import time
+import os
 from PIL import Image, ImageDraw, ImageFont
 
 CELL = mapload.CELL
@@ -91,6 +92,21 @@ if __name__ == "__main__":
         print(f"Elapsed Time : {end_time - start_time : .6f}")
         results.append((title, path, c, exp, end_time - start_time, colour, w))
 
+    os.makedirs("routes", exist_ok=True)
+    fileName = os.path.join("routes", f"route_{inpKey[a]}_to_{inpKey[b]}.png".replace(" ", "_"))
+    drawPaths(results, a, b, fileName)
+    print("\nSaved", os.path.abspath(fileName))
+
     fileName = f"route_{inpKey[a]}_to_{inpKey[b]}.png".replace(" ", "_")
     drawPaths(results, a, b, fileName)
     print("\nSaved", fileName)
+
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(8, 10))
+    plt.imshow(Image.open(fileName))
+    plt.axis("off")
+    plt.tight_layout()
+    plt.show()
+
+    #if SHOW_IMAGE:
+    #    Image.open(fileName).show()
