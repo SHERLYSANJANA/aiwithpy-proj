@@ -29,7 +29,7 @@ LANDMARKS = {
 LAKE = (860, 1110, 1080, 1350)             # x1, y1, x2, y2 in pixels: blocked (water touches the road)
 
 
-def loadMap(imgPath="IIITDM.png"):
+def loadMap(imgPath="IIITDM.png", terrain=True):
     img = Image.open(imgPath).convert("RGB")
     a = np.array(img).astype(int)
     r, g, b = a[..., 0], a[..., 1], a[..., 2]
@@ -52,7 +52,36 @@ def loadMap(imgPath="IIITDM.png"):
     blocks = road[:rows * CELL, :cols * CELL].reshape(rows, CELL, cols, CELL).mean(axis=(1, 3))
     cell = blocks > 0.5
 
-    _map = [['path' if cell[i, j] else 'wall' for j in range(cols)] for i in range(rows)]
+    if not terrain:
+        _map = [['path' if cell[i, j] else 'wall' for j in range(cols)] for i in range(rows)]
+        return _map, rows, cols
+
+    # ---- terrain: classify every non-road pixel by colour ----
+    dark  = (r + g + b) < 200                                       # black outlines: ignored in the vote
+    grass = (g >= r - 8) & (g > b + 25) & ~dark                     # yellow-green (also tree canopies)
+    trail = (r > g + 25) & (g > b + 40) & (b < 135) & (r > 190)     # orange dirt trails
+    wallc = ~dark & ~grass & ~trail                                  # roofs, courts, water, grey, ...
+
+    def frac(m):
+        return m[:rows * CELL, :cols * CELL].reshape(rows, CELL, cols, CELL).mean(axis=(1, 3))
+    fg, ft, fw, fd = frac(grass), frac(trail), frac(wallc), frac(dark)
+
+    walk = (fg + ft > 0.2) & (fg + ft >= fw) & (fd < 0.8)
+    kind = np.where(ft > fg, 2, 3)                                   # 2 = trail, 3 = grass
+    kind = np.where(cell, 1, np.where(walk, kind, 0))                # 1 = road (wins), 0 = blocked
+
+    # grass/trail only INSIDE the campus loop: flood-fill from the field, stopping at the road
+    lab2, _ = ndimage.label(~cell)
+    inside = lab2 == lab2[min(690 // CELL, rows - 1), min(510 // CELL, cols - 1)]
+    kind = np.where((kind >= 2) & ~inside, 0, kind)
+
+    # keep only walkable cells connected to the road network (no unreachable islands)
+    lab3, _ = ndimage.label(kind > 0)
+    keep = np.isin(lab3, np.unique(lab3[cell]))
+    kind = np.where(keep, kind, 0)
+
+    names = {0: 'wall', 1: 'path', 2: 'trail', 3: 'grass'}
+    _map = [[names[int(kind[i, j])] for j in range(cols)] for i in range(rows)]
     return _map, rows, cols
 
 
@@ -86,6 +115,6 @@ def reachable(_map, rows, cols, start):
         cur = q.popleft()
         for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             n = (cur[0] + dr, cur[1] + dc)
-            if 0 <= n[0] < rows and 0 <= n[1] < cols and n not in seen and _map[n[0]][n[1]] == 'path':
+            if 0 <= n[0] < rows and 0 <= n[1] < cols and n not in seen and _map[n[0]][n[1]] != 'wall':
                 seen.add(n); q.append(n)
     return seen
