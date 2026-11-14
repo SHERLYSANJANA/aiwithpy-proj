@@ -1,28 +1,28 @@
-import math
-import random
 import heapq as h
 
 
 def algo(s, goal, _map, _mapDict, rows, cols):
-    nexts = [(-1,0),(1,0),(0,-1),(0,1)]
+    nexts = [(-1,0),(1,0),(0,-1),(0,1)]       
     exploredStates = 0
     found = False
 
     def heur(_s, _g):
-        return math.sqrt( (_g[0] - _s[0])**2 + (_g[1] - _s[1])**2)
+
+        return abs(_g[0] - _s[0]) + abs(_g[1] - _s[1])
 
     OPEN = []
-    OPENED = {s}
     parent = {}
     path = []
 
     g = {s: 0}
     f = {s: heur(s,goal)}
-    h.heappush(OPEN, (0, s))
+    h.heappush(OPEN, (f[s], s))              
 
     while OPEN:
-        curr = h.heappop(OPEN)[1]
-        OPENED.remove(curr)
+        fc, curr = h.heappop(OPEN)
+        if fc > f[curr]:                       
+            continue
+        exploredStates += 1                    
 
         if(curr == goal):
             while curr in parent:
@@ -32,13 +32,10 @@ def algo(s, goal, _map, _mapDict, rows, cols):
             found = True
             break
 
-        random.shuffle(nexts)
-
         for r, c in (nexts):
             next = (curr[0] + r, curr[1] + c)
 
             if 0 <= next[0] < rows and 0 <= next[1] < cols:
-                exploredStates += 1
 
                 if _mapDict[_map[next[0]][next[1]]][1] == float('inf'):
                     continue
@@ -49,12 +46,10 @@ def algo(s, goal, _map, _mapDict, rows, cols):
                     parent[next] = curr
                     g[next] = tent_g
                     f[next] = tent_g + heur(next, goal)
+                    h.heappush(OPEN, (f[next],next))   
 
-                    if next not in OPENED:
-                        h.heappush(OPEN, (f[next],next))
-                        OPENED.add(next)
 
-    return path, g[goal], s, goal, exploredStates, found
+    return path, g.get(goal, float('inf')), s, goal, exploredStates, found
 
 
 def search(s_list, goal_list, _map, _mapDict, rows, cols):
@@ -68,14 +63,12 @@ def search(s_list, goal_list, _map, _mapDict, rows, cols):
         for g in goal_list:
             p,c,_s,_g, _exp, f = algo(s,g, _map, _mapDict, rows, cols)
 
-            #print(c)
+            exp += _exp                       
 
             if f and c < minC:
                 minC = c
                 minPath = p
                 st = _s
                 go = _g
-                exp = _exp
-
 
     return minPath, minC, st, go, exp
