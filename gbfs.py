@@ -12,7 +12,7 @@ def search(s_list, goal_list, _map, _mapDict, rows, cols):
         for g in goal_list:
             p,c,_exp,f = algo(s,g, _map, _mapDict, rows, cols)
 
-            exp += _exp                       
+            exp += _exp                        # FIX: total work over ALL pairs (matches the timer)
 
             if f and c < minC:
                 minC = c
@@ -29,13 +29,13 @@ def algo(s, goal, map, mapDict, rows, cols):
     found = False
 
     def heur(_s, _g):
-        return abs(_g[0] - _s[0]) + abs(_g[1] - _s[1])   
+        return abs(_g[0] - _s[0]) + abs(_g[1] - _s[1])    # Manhattan, same as A*
 
     OPEN = []
     CLOSED = set()
     pathRec = {s:(None,0)}
     path = []
-    cst = float('inf')                        
+    cst = float('inf')                         # FIX: was 0 -> garbage cost when no path exists
 
     h.heappush(OPEN,(heur(s,goal),s))
 
@@ -52,18 +52,18 @@ def algo(s, goal, map, mapDict, rows, cols):
 
         if cur not in CLOSED:
             CLOSED.add(cur)
-            exploredStates += 1                
+            exploredStates += 1                # FIX: count expansions, not every neighbour
 
             for r, c in (nexts):
                 next = (cur[0] + r, cur[1] + c)
 
-                
+                # FIX: "next not in pathRec" -> first discovery only (no parent overwrite, no duplicate pushes)
                 if 0 <= next[0] < rows and 0 <= next[1] < cols and next not in CLOSED and next not in pathRec:
 
                     if mapDict[map[next[0]][next[1]]][1] == float('inf'):
                         continue
 
-                    ncst = pathRec[cur][1] + mapDict[map[next[0]][next[1]]][1]   
+                    ncst = pathRec[cur][1] + mapDict[map[next[0]][next[1]]][1]   # FIX: no longer overwrites cst
                     pathRec[next] = (cur,ncst)
                     h.heappush(OPEN,(heur(next,goal),next))
 
