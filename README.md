@@ -1,12 +1,12 @@
 # Campus Pathfinding: A*, Greedy Best-First Search and Simulated Annealing
 
-Finds routes between 17 landmarks on the IIITDM campus and compares three search algorithms on the same map.
+Finds routes between 17 landmarks on the IIITDM campus and compares three search algorithms on the same map. Routes also change with the **time of day**: when the mess is crowded, the system sends you a different way.
 
 The map is not hand-built. The grid is generated automatically from the campus illustration (`IIITDM.png`), and each algorithm's route is drawn back onto the original image.
 
-![Banyan to Arjuna](docs/route_Banyan_to_Arjuna.png)
+![Same trip at four different times](docs/crowd_demo.png)
 
-*Blue is A\*, orange is Greedy Best-First Search and red is Simulated Annealing.*
+*The same trip (PEMS to Jasmine) at 11:00, 08:30, 13:00 and 17:00. Yellow to red shading is crowding, the blue line is the crowd-aware A\* route and the black line is the usual route with no crowd.*
 
 ---
 
@@ -15,26 +15,28 @@ The map is not hand-built. The grid is generated automatically from the campus i
 1. [Overview](#overview)
 2. [How it works](#how-it-works)
 3. [The algorithms](#the-algorithms)
-4. [Results](#results)
-5. [Setup and usage](#setup-and-usage)
-6. [Project structure](#project-structure)
-7. [Limitations](#limitations)
-8. [Possible improvements](#possible-improvements)
+4. [Time-based crowding](#time-based-crowding)
+5. [Results](#results)
+6. [Setup and usage](#setup-and-usage)
+7. [Project structure](#project-structure)
+8. [Limitations](#limitations)
+9. [Possible improvements](#possible-improvements)
 
 ---
 
 ## Overview
 
-The project has two parts:
+The project has three parts:
 
 1. **Turn a drawing into a weighted graph.** Image processing classifies every part of the map as road, trail, grass or blocked.
 2. **Search that graph three different ways.** A\*, Greedy Best-First Search (GBFS) and Simulated Annealing (SA) all solve the same routing problem, so their cost, speed and reliability can be compared fairly.
+3. **Make routes depend on the time.** A crowd model raises the cost of busy roads during mess and cafeteria hours, so the route you get depends on when you ask.
 
-The algorithms know nothing about images. They only see a 2D list of tile types and a table of what each tile costs.
+The algorithms know nothing about images or clocks. They only see a 2D list of tile types and a table of what each tile costs.
 
 ```
-IIITDM.png → classify pixels → grid of cells → snap landmarks → 3 search algorithms → draw routes
-             (mapload.py)                       (mapload.py)     (astar / gbfs / simanneal)   (main.py)
+IIITDM.png → classify pixels → grid of cells → snap landmarks → add crowd for the time → 3 search algorithms → draw routes
+             (mapload.py)                       (mapload.py)     (crowd.py)              (astar / gbfs / simanneal)  (main.py)
 ```
 
 ---
@@ -89,7 +91,7 @@ Each of the 17 numbered places on the map has a pixel position. The code convert
 
 ### 3. The search problem
 
-Every walkable cell is a node, connected to its up, down, left and right neighbours. Stepping onto a cell costs 1, 2 or 3, and walls cannot be entered. A route is a path through this graph, and its cost is the sum of the costs of the cells it steps onto.
+Every walkable cell is a node, connected to its up, down, left and right neighbours. Stepping onto a cell costs its tile cost, and walls cannot be entered. A route is a path through this graph, and its cost is the sum of the costs of the cells it steps onto.
 
 All three algorithms share one idea: keep a set of cells to explore, pick one, look at its neighbours, and repeat. They differ in how they pick.
 
@@ -114,13 +116,13 @@ if tent_g < g.get(next, inf):          # found a cheaper way to reach next
     heappush(OPEN, (f[next], next))
 ```
 
-- **Heuristic.** `h` is Manhattan distance, `|Δrow| + |Δcol|`. It never overestimates, because every step costs at least 1, so no route can be shorter than the number of steps Manhattan distance counts. This is what guarantees A\* finds the cheapest route.
+- **Heuristic.** `h` is Manhattan distance, `|Δrow| + |Δcol|`. It never overestimates, because every step costs at least 1, so no route can be shorter than the number of steps Manhattan distance counts. Crowding only ever raises costs, so this stays true at every time of day, and A\* still finds the cheapest route.
 - **Stale entries.** When a cheaper route to a cell is found, the cell is pushed again. The old entry is skipped when it is popped (`if fc > f[curr]: continue`).
 - **Path.** The `parent` dictionary records how each cell was reached, and the path is rebuilt backwards from the goal.
 
 ### Greedy Best-First Search (`gbfs.py`)
 
-GBFS uses only `h`. It always expands the cell that looks closest to the goal and ignores what it cost to get there. It is very fast because it dives straight toward the goal, but it cannot tell that grass costs three times as much as road. Its route cost is added up afterwards from the final path, and the route is not guaranteed to be cheapest.
+GBFS uses only `h`. It always expands the cell that looks closest to the goal and ignores what it cost to get there. It is very fast because it dives straight toward the goal, but it cannot tell that grass or a crowded road costs more. Its route cost is added up afterwards from the final path, and the route is not guaranteed to be cheapest.
 
 ### Simulated Annealing (`simanneal.py`)
 
@@ -143,9 +145,48 @@ The weakness is that "distance to the goal" ignores walls. A walk can slide into
 
 ---
 
+## Time-based crowding
+
+`crowd.py` makes the route depend on when you travel. At any time, busy places create congestion, and congested cells cost more to walk through.
+
+### The model
+
+1. **Events.** A schedule lists busy periods. Each has a place, a time window, a peak strength (0 to 1) and where the crowd walks from. The crowd builds up over 20 minutes before a window and fades over 20 minutes after.
+2. **Crowd shape.** Around the busy place there is a circle of congestion (about 14 cells, or 56 pixels). People also walk to it, so the roads from the hostels and class blocks to it get crowded too. Those roads are found by running A\* from every origin to the busy place. Near the destination all of those routes overlap, so the crowd gets heavier the closer you get.
+3. **Levels.** Every walkable cell gets a crowd level from 0 to 4.
+4. **Cost.** A crowded cell costs more to enter:
+
+```
+cost = base cost × (1 + 0.75 × level)       level 4 costs 4× the base cost
+```
+
+5. **Search.** The algorithms are unchanged. Crowded cells get their own tile types (for example `path@3`) with higher costs in a time-specific `mapDict`, so the same A\*, GBFS and SA code runs on a different map at different times.
+
+### Default schedule
+
+| Event | Place | Window | Peak |
+|---|---|---|---|
+| Breakfast rush | Mess | 07:30 to 09:30 | 1.0 |
+| Lunch rush | Mess | 12:30 to 14:30 | 1.0 |
+| Snacks | Mess | 16:30 to 17:30 | 0.5 |
+| Dinner rush | Mess | 19:30 to 21:30 | 1.0 |
+| Cafeteria evening | Cafeteria | 16:00 to 18:30 | 0.7 |
+
+> **These are assumptions.** The map has no names for mess halls or hostels, so the mess is set to **Akshaya (9)** and the hostels to Jasmine, Jasmine Annex, Banyan, Ashwatha and Ashoka. The timings are invented. Edit `MESS`, `HOSTELS` and `EVENTS` at the top of `crowd.py` to match the real campus.
+
+### Effect
+
+- At breakfast and dinner, A\* picks a different route than it would with no crowd for **73 of 136** landmark pairs, and at lunch for **92 of 136**.
+- The biggest savings are around 144 cost units, on trips like PEMS to Jasmine at lunch (the usual route would cost 335 in the crowd, and the crowd-aware route costs 191).
+- GBFS and simulated annealing do not plan around the crowd. On that same lunch trip their crowd exposure (total crowd level walked through) was 77 and 82, against 23 for A\*.
+
+---
+
 ## Results
 
-All 136 landmark pairs, with grass cost 3 and trail cost 2:
+### Algorithm comparison (no crowd)
+
+All 136 landmark pairs, with grass cost 3 and trail cost 2, from `compare.py`:
 
 | Algorithm | Goal found | Avg cost | Avg cost vs A* | Matched A* | Avg explored | Avg time |
 |---|---|---|---|---|---|---|
@@ -160,7 +201,7 @@ All 136 landmark pairs, with grass cost 3 and trail cost 2:
 - **Simulated annealing** failed on 31 of 136 pairs, and its successful routes cost 2.3 times A\*'s. Random walking guided by straight-line distance gets stuck behind buildings, so it is a poor fit for shortest-path problems on a map like this.
 - **Terrain matters.** A\* leaves the road for grass or trails on 19 of the 136 pairs. With grass at cost 2 and trails at 1.5, that rises to about 40 pairs.
 
-Full per-pair results are in `results.csv`.
+Full per-pair results are in `results.csv`. These numbers are for the no-crowd map, which is what `compare.py` uses.
 
 ---
 
@@ -172,15 +213,30 @@ pip install -r requirements.txt
 
 Run all commands from the repository root, because the code opens `IIITDM.png` by relative path.
 
-**Find a route.** Enter a start and a destination as a number or a name (for example `15` or `Ashoka`):
+### Find a route
 
 ```bash
 python3 main.py
 ```
 
-It prints cost, explored states and time for each algorithm, saves `route_<from>_to_<to>.png`, and shows the map with all three routes.
+It asks for three things:
 
-**Compare all 136 pairs:**
+1. **Start**, as a number or a name (for example `15` or `Ashoka`).
+2. **Destination**, in the same format.
+3. **Time of travel**, as `13:15` or `1:15pm`. Press Enter to use the current time.
+
+It then prints cost, crowd exposure, explored states and time for each algorithm, tells you whether the route was changed because of the crowd, saves `routes/route_<from>_to_<to>_<time>.png`, and shows the map. In the image, blue is A\*, orange is GBFS, red is simulated annealing and black is the usual no-crowd route. Set `SHOW_IMAGE = False` near the top of `main.py` to stop the window opening.
+
+### See one trip at four times
+
+```bash
+python3 crowd_demo.py          # PEMS to Jasmine
+python3 crowd_demo.py 4 10     # any two landmark numbers
+```
+
+This saves `crowd_demo.png`.
+
+### Compare all 136 pairs
 
 ```bash
 python3 compare.py
@@ -208,15 +264,17 @@ This writes `results.csv`, `summary.md` and `comparison.png`. It takes about 30 
 
 | File | Purpose |
 |---|---|
-| `main.py` | Interactive route finder and image output |
+| `main.py` | Interactive route finder, crowd-aware routing and image output |
 | `mapload.py` | Image to grid, landmark table and snapping |
+| `crowd.py` | Time-of-day crowd model (schedule, crowd levels, costs) |
 | `astar.py` | A* search |
 | `gbfs.py` | Greedy best-first search |
 | `simanneal.py` | Simulated annealing |
-| `compare.py` | All-pairs comparison |
+| `compare.py` | All-pairs comparison of the three algorithms |
+| `crowd_demo.py` | One trip shown at four different times |
 | `IIITDM.png` | Campus map used as input |
 | `results.csv`, `summary.md`, `comparison.png` | Output of `compare.py` |
-| `docs/` | Example route images |
+| `docs/` | Example images used in this README |
 
 ---
 
@@ -225,15 +283,18 @@ This writes `results.csv`, `summary.md` and `comparison.png`. It takes about 30 
 - The grid is built using colour thresholds tuned by eye for this one image. A different map needs retuning in `mapload.py`.
 - Some light-coloured patches of grass are read as blocked.
 - Landmarks are snapped to the nearest road, so routes start beside a building, not at its door.
-- Costs are counts of 4-pixel cells weighted by terrain, not real distances. The grass and trail costs (3 and 2) are chosen values, not measurements.
+- Costs are counts of 4-pixel cells weighted by terrain and crowding, not real distances or times. The grass and trail costs (3 and 2) are chosen values, not measurements.
+- The crowd is a model, not measured data. The schedule, the mess location, the hostel list and the strength of the congestion are all assumptions, and the model does not tell weekdays from weekends.
 - "Explored" means expanded nodes for A\* and GBFS, but iterations for simulated annealing, so those counts are not directly comparable.
-- Each pair was run in one direction. A\* costs are symmetric, but GBFS and simulated annealing can differ by direction.
+- The comparison table covers the no-crowd map only, and each pair was run in one direction. A\* costs are symmetric, but GBFS and simulated annealing can differ by direction.
 
 ---
 
 ## Possible improvements
 
+- Replace the invented schedule with real mess and class timings, and add separate weekday and weekend schedules.
+- Add class-change crowds at the academic blocks.
 - Add **Dijkstra** as a baseline (A\* with the heuristic set to zero) to show how much the heuristic saves.
 - Make simulated annealing fail less, for example with reheating or a slower cooling schedule.
-- Test how the results change with different grass and trail costs.
+- Test how the results change with different grass, trail and crowd costs.
 - Add diagonal moves at cost √2.
